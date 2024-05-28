@@ -15,7 +15,7 @@ Script ini melakukan backup otomatis pada server Pterodactyl dan mengupload ke G
 
     ```bash
     git clone https://github.com/Arnov77/Pterodactyl-auto-backup.git
-    cd repository
+    cd Pterodactyl-auto-backup
     ```
 
 2. **Install dependensi:**
