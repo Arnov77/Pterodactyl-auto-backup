@@ -1,6 +1,6 @@
 # Auto Backup Server Pterodactyl dan Upload ke Google Drive
 
-Script ini melakukan backup otomatis pada server Pterodactyl dan upload ke Google Drive menggunakan Google Drive API dari Google Cloud dan API Pterodactyl. Setelah backup berhasil diupload, script juga akan menghapus backup lokal dan mengirimkan notifikasi ke Discord menggunakan webhook.
+Script ini melakukan backup otomatis pada server Pterodactyl dan mengupload ke Google Drive menggunakan Google Drive API dari Google Cloud dan API Pterodactyl. Setelah backup berhasil diupload, script juga akan menghapus backup lokal dan mengirimkan notifikasi ke Discord menggunakan webhook.
 
 ## Persyaratan
 
