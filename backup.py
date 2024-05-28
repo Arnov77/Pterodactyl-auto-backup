@@ -6,6 +6,15 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
+# kode warna ANSI
+reset = "\033[0m"
+green = "\033[32m"
+red = "\033[31m"
+white = "\033[37m"
+black = "\033[30m"
+bgGreen = "\033[42m"
+bgRed = "\033[41m"
+
 # Path ke file konfigurasi
 CONFIG_FILE_PATH = 'config.json'
 
@@ -23,8 +32,8 @@ default_config = {
 def create_default_config():
     with open(CONFIG_FILE_PATH, 'w') as config_file:
         json.dump(default_config, config_file, indent=4)
-    print(f"{CONFIG_FILE_PATH} tidak ditemukan. File konfigurasi default telah dibuat.")
-    print(f"Silakan edit {CONFIG_FILE_PATH} dengan informasi yang benar sebelum menjalankan skrip lagi.")
+    print(f"{bgRed}{black}[ERROR]{reset} {red}{CONFIG_FILE_PATH} tidak ditemukan. File konfigurasi default telah dibuat.")
+    print(f"{white}Silakan edit {CONFIG_FILE_PATH} dengan informasi yang benar sebelum menjalankan skrip lagi.")
 
 # load konfigurasi dari file
 def load_config():
@@ -52,9 +61,9 @@ def send_discord_notification(title, description, color=0x00ff00):
     headers = {'Content-Type': 'application/json'}
     response = requests.post(url, data=json.dumps(data), headers=headers)
     if response.status_code == 204:
-        print("Successfully sent message to Discord")
+        print(f"{bgGreen}{black}[SUCCESS]{reset} successfully sent message to Discord")
     else:
-        print(f"Failed to send message to Discord: {response.status_code}")
+        print(f"{bgRed}{black}{black}[ERROR]{reset} {red}Failed to send message to Discord: {response.status_code}{reset}")
 
 # Pterodactyl API details
 PTERODACTYL_API_KEY = config["pterodactyl_api_key"]
@@ -164,9 +173,9 @@ def delete_backup(backup_uuid):
     }
     response = requests.delete(url, headers=headers)
     if response.status_code == 204:
-        print(f'Successfully deleted backup {backup_uuid}')
+        print(f'{bgGreen}{black}[SUCCESS]{reset} Successfully deleted backup {backup_uuid}')
     else:
-        print(f'Failed to delete backup {backup_uuid}: {response.status_code}')
+        print(f'{bgRed}{black}[ERROR]{reset} {red}Failed to delete backup {backup_uuid}: {response.status_code}')
 
 def main():
     try:
