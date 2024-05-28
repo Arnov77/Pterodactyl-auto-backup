@@ -26,7 +26,7 @@ def create_default_config():
     print(f"{CONFIG_FILE_PATH} tidak ditemukan. File konfigurasi default telah dibuat.")
     print(f"Silakan edit {CONFIG_FILE_PATH} dengan informasi yang benar sebelum menjalankan skrip lagi.")
 
-# Memuat konfigurasi dari file
+# load konfigurasi dari file
 def load_config():
     if not os.path.exists(CONFIG_FILE_PATH):
         create_default_config()
@@ -34,7 +34,7 @@ def load_config():
     with open(CONFIG_FILE_PATH, 'r') as config_file:
         return json.load(config_file)
 
-# Memuat konfigurasi
+# load konfigurasi
 config = load_config()
 
 # Discord webhook
@@ -66,7 +66,7 @@ SCOPES = ['https://www.googleapis.com/auth/drive.file']
 SERVICE_ACCOUNT_FILE = config["google_service_account_file"]
 DRIVE_FOLDER_ID = config["drive_folder_id"]
 
-# Create a backup on Pterodactyl
+# membuat backup di pterodactyl
 def create_backup():
     send_discord_notification("<a:loading1:1244939511180558337> Backup Start", "Starting backup process<a:loading:1244932877171560490>", color=0xffff00)
     url = f'{PTERODACTYL_URL}/api/client/servers/{SERVER_ID}/backups'
@@ -85,7 +85,6 @@ def create_backup():
         return backup_uuid
     else:
         send_discord_notification("<a:failed:1244933213592485928> Backup Failed", f"Failed to create backup. Response: {response.text}", 0xff0000)
-        # Hapus atau komentar baris ini untuk menghilangkan pesan kesalahan
         # raise Exception("Failed to create backup: 'attributes' key not found in response")
 
 # Check backup status
@@ -102,7 +101,6 @@ def check_backup_status(backup_uuid):
     if 'attributes' in response_data:
         return response_data['attributes']['is_successful'], response_data['attributes']['completed_at']
     else:
-        # Hapus atau komentar baris ini untuk menghilangkan pesan kesalahan
         # raise Exception(f"Failed to check backup status: 'attributes' key not found in response for backup UUID {backup_uuid}")
         return False, None
 
@@ -122,15 +120,14 @@ def download_backup(backup_uuid):
         download_url = response_data['attributes']['url']
     else:
         send_discord_notification("<a:failed:1244933213592485928> Download Failed", f"Failed to retrieve download URL. Response: {response.text}", 0xff0000)
-        # Hapus atau komentar baris ini untuk menghilangkan pesan kesalahan
         # raise Exception(f"Failed to retrieve download URL: 'attributes' key not found in response for backup UUID {backup_uuid}")
         return None
 
-    # Ensure .temp folder exists
+    # memastikan file .temp ada dan membuat file .temp jika tidak ada
     if not os.path.exists('.temp'):
         os.makedirs('.temp')
 
-    # Format file name with server UUID and current date-time
+    # format file dengan nama, tanggal dan waktu
     now = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     file_name = f'backup-{SERVER_ID}-{now}.tar.gz'
     file_path = os.path.join('.temp', file_name)
@@ -144,7 +141,7 @@ def download_backup(backup_uuid):
     send_discord_notification("<a:success:1244932963901243432> Download Successful", "Backup file downloaded successfully.")
     return file_path
 
-# Upload backup to Google Drive
+# Upload backup ke Google Drive
 def upload_to_drive(file_path):
     send_discord_notification("<a:loading1:1244939511180558337> Upload Start", "Starting upload process<a:loading:1244932877171560490>", color=0xffff00)
     credentials = service_account.Credentials.from_service_account_file(
@@ -152,7 +149,7 @@ def upload_to_drive(file_path):
     service = build('drive', 'v3', credentials=credentials)
     file_metadata = {
         'name': os.path.basename(file_path),
-        'parents': [DRIVE_FOLDER_ID]  # Specify Google Drive folder ID
+        'parents': [DRIVE_FOLDER_ID]
     }
     media = MediaFileUpload(file_path, mimetype='application/gzip')
     file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
@@ -178,7 +175,7 @@ def main():
         if backup_file:
             drive_file_id = upload_to_drive(backup_file)
             if drive_file_id:
-                # Delete the local backup file after successful upload
+                # menghapus lokal file setelah selesai upload
                 os.remove(backup_file)
                 print(f"Deleted temporary file: {backup_file}")
                 delete_backup(backup_uuid)
