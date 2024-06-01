@@ -2,9 +2,17 @@ import requests
 import json
 import os
 import datetime
-from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+import time
+import logging
+import pickle
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # kode warna ANSI
 reset = "\033[0m"
@@ -24,7 +32,7 @@ default_config = {
     "pterodactyl_api_key": "YOUR_PTERODACTYL_API_KEY",
     "pterodactyl_url": "YOUR_PTERODACTYL_URL",
     "server_id": "YOUR_SERVER_ID",
-    "google_service_account_file": "./credentials.json",
+    "google_credentials_file": "./credentials.json",
     "drive_folder_id": "YOUR_DRIVE_FOLDER_ID"
 }
 
@@ -61,9 +69,9 @@ def send_discord_notification(title, description, color=0x00ff00):
     headers = {'Content-Type': 'application/json'}
     response = requests.post(url, data=json.dumps(data), headers=headers)
     if response.status_code == 204:
-        print(f"{bgGreen}{black}[SUCCESS]{reset} successfully sent message to Discord")
+        logging.info(f"{bgGreen}{black}[SUCCESS]{reset} successfully sent message to Discord")
     else:
-        print(f"{bgRed}{black}{black}[ERROR]{reset} {red}Failed to send message to Discord: {response.status_code}{reset}")
+        logging.error(f"{bgRed}{black}[ERROR]{reset} {red}Failed to send message to Discord: {response.status_code}{reset}")
 
 # Pterodactyl API details
 PTERODACTYL_API_KEY = config["pterodactyl_api_key"]
@@ -72,8 +80,52 @@ SERVER_ID = config["server_id"]
 
 # Google Drive API details
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
-SERVICE_ACCOUNT_FILE = config["google_service_account_file"]
+GOOGLE_CREDENTIALS_FILE = config["google_credentials_file"]
 DRIVE_FOLDER_ID = config["drive_folder_id"]
+
+# Fungsi autentikasi OAuth 2.0
+def authenticate():
+    creds = None
+    if os.path.exists('token.pickle'):
+        with open('token.pickle', 'rb') as token:
+            creds = pickle.load(token)
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(GOOGLE_CREDENTIALS_FILE, SCOPES)
+            creds = flow.run_local_server(port=0)
+        with open('token.pickle', 'wb') as token:
+            pickle.dump(creds, token)
+    return creds
+
+# Fungsi untuk mengunduh dengan retry
+def download_with_retry(url, headers, file_path):
+    retry_attempts = 5
+    chunk_size = 81920  # Meningkatkan ukuran chunk
+    try:
+        resume_header = {}
+        if os.path.exists(file_path):
+            file_size = os.path.getsize(file_path)
+            resume_header = {'Range': f'bytes={file_size}-'}
+        else:
+            file_size = 0
+
+        for attempt in range(retry_attempts):
+            try:
+                with requests.get(url, headers={**headers, **resume_header}, stream=True, timeout=30) as r:  # Menambah timeout
+                    r.raise_for_status()
+                    mode = 'ab' if file_size > 0 else 'wb'
+                    with open(file_path, mode) as f:
+                        for chunk in r.iter_content(chunk_size=chunk_size):
+                            if chunk:  # filter out keep-alive new chunks
+                                f.write(chunk)
+                return
+            except requests.exceptions.RequestException as e:
+                logging.error(f"Attempt {attempt+1} failed: {e}")
+                time.sleep(5)  # Tunggu sebelum mencoba lagi
+    except Exception as e:
+        raise RuntimeError(f"Failed to download file after {retry_attempts} attempts: {str(e)}")
 
 # membuat backup di pterodactyl
 def create_backup():
@@ -94,7 +146,7 @@ def create_backup():
         return backup_uuid
     else:
         send_discord_notification("<a:failed:1244933213592485928> Backup Failed", f"Failed to create backup. Response: {response.text}", 0xff0000)
-        # raise Exception("Failed to create backup: 'attributes' key not found in response")
+        return None
 
 # Check backup status
 def check_backup_status(backup_uuid):
@@ -110,12 +162,28 @@ def check_backup_status(backup_uuid):
     if 'attributes' in response_data:
         return response_data['attributes']['is_successful'], response_data['attributes']['completed_at']
     else:
-        # raise Exception(f"Failed to check backup status: 'attributes' key not found in response for backup UUID {backup_uuid}")
         return False, None
 
-# Download backup file
+# Download backup file dengan retry dan cek status
 def download_backup(backup_uuid):
     send_discord_notification("<a:loading1:1244939511180558337> Download Start", "Starting download process<a:loading:1244932877171560490>", color=0xffff00)
+    
+    # Cek status backup
+    is_successful, completed_at = False, None
+    max_retries = 30  # Jumlah maksimum pengecekan
+    retry_interval = 60  # Interval antara pengecekan (dalam detik)
+    
+    for _ in range(max_retries):
+        is_successful, completed_at = check_backup_status(backup_uuid)
+        if is_successful:
+            break
+        time.sleep(retry_interval)
+    
+    if not is_successful:
+        send_discord_notification("<a:failed:1244933213592485928> Backup Failed", "Backup did not complete successfully in the allotted time.", 0xff0000)
+        return None
+    
+    # Lanjutkan ke proses download jika backup sukses
     url = f'{PTERODACTYL_URL}/api/client/servers/{SERVER_ID}/backups/{backup_uuid}/download'
     headers = {
         'Authorization': f'Bearer {PTERODACTYL_API_KEY}',
@@ -129,7 +197,6 @@ def download_backup(backup_uuid):
         download_url = response_data['attributes']['url']
     else:
         send_discord_notification("<a:failed:1244933213592485928> Download Failed", f"Failed to retrieve download URL. Response: {response.text}", 0xff0000)
-        # raise Exception(f"Failed to retrieve download URL: 'attributes' key not found in response for backup UUID {backup_uuid}")
         return None
 
     # memastikan file .temp ada dan membuat file .temp jika tidak ada
@@ -141,29 +208,42 @@ def download_backup(backup_uuid):
     file_name = f'backup-{SERVER_ID}-{now}.tar.gz'
     file_path = os.path.join('.temp', file_name)
 
-    with requests.get(download_url, stream=True) as r:
-        r.raise_for_status()
-        with open(file_path, 'wb') as f:
-            for chunk in r.iter_content(chunk_size=8192):
-                f.write(chunk)
+    # Menggunakan download_with_retry untuk mengunduh file
+    download_with_retry(download_url, headers, file_path)
 
     send_discord_notification("<a:success:1244932963901243432> Download Successful", "Backup file downloaded successfully.")
     return file_path
 
-# Upload backup ke Google Drive
+# Upload backup ke Google Drive dengan chunked upload
 def upload_to_drive(file_path):
     send_discord_notification("<a:loading1:1244939511180558337> Upload Start", "Starting upload process<a:loading:1244932877171560490>", color=0xffff00)
-    credentials = service_account.Credentials.from_service_account_file(
-        SERVICE_ACCOUNT_FILE, scopes=SCOPES)
-    service = build('drive', 'v3', credentials=credentials)
+    creds = authenticate()
+    service = build('drive', 'v3', credentials=creds)
     file_metadata = {
         'name': os.path.basename(file_path),
         'parents': [DRIVE_FOLDER_ID]
     }
-    media = MediaFileUpload(file_path, mimetype='application/gzip')
-    file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-    send_discord_notification("<a:success:1244932963901243432> Upload Successful", "Backup file uploaded to Google Drive successfully.")
-    return file.get('id')
+    
+    media = MediaFileUpload(file_path, mimetype='application/gzip', resumable=True)
+    
+    request = service.files().create(body=file_metadata, media_body=media, fields='id')
+    response = None
+    while response is None:
+        try:
+            logging.info("Uploading file...")
+            status, response = request.next_chunk()
+            if status:
+                logging.info(f"Uploaded {int(status.progress() * 100)}%")
+        except Exception as e:
+            logging.error(f"An error occurred during upload: {e}")
+            time.sleep(5)
+    
+    if response:
+        send_discord_notification("<a:success:1244932963901243432> Upload Successful", "Backup file uploaded to Google Drive successfully.")
+        return response.get('id')
+    else:
+        send_discord_notification("<a:failed:1244933213592485928> Upload Failed", "Failed to upload file to Google Drive.", 0xff0000)
+        return None
 
 def delete_backup(backup_uuid):
     url = f'{PTERODACTYL_URL}/api/client/servers/{SERVER_ID}/backups/{backup_uuid}'
@@ -173,21 +253,22 @@ def delete_backup(backup_uuid):
     }
     response = requests.delete(url, headers=headers)
     if response.status_code == 204:
-        print(f'{bgGreen}{black}[SUCCESS]{reset} Successfully deleted backup {backup_uuid}')
+        logging.info(f'{bgGreen}{black}[SUCCESS]{reset} Successfully deleted backup {backup_uuid}')
     else:
-        print(f'{bgRed}{black}[ERROR]{reset} {red}Failed to delete backup {backup_uuid}: {response.status_code}')
+        logging.error(f'{bgRed}{black}[ERROR]{reset} {red}Failed to delete backup {backup_uuid}: {response.status_code}')
 
 def main():
     try:
         backup_uuid = create_backup()
-        backup_file = download_backup(backup_uuid)
-        if backup_file:
-            drive_file_id = upload_to_drive(backup_file)
-            if drive_file_id:
-                # menghapus lokal file setelah selesai upload
-                os.remove(backup_file)
-                print(f"Deleted temporary file: {backup_file}")
-                delete_backup(backup_uuid)
+        if backup_uuid:
+            backup_file = download_backup(backup_uuid)
+            if backup_file:
+                drive_file_id = upload_to_drive(backup_file)
+                if drive_file_id:
+                    # Menghapus lokal file setelah selesai upload
+                    os.remove(backup_file)
+                    logging.info(f"Deleted temporary file: {backup_file}")
+                    delete_backup(backup_uuid)
     except Exception as e:
         send_discord_notification("<a:failed:1244933213592485928> Error", f"An error occurred: {str(e)}", 0xff0000)
 
