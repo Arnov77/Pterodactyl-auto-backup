@@ -3,7 +3,7 @@ import json
 import os
 import datetime
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google_auth_oauthlib.flow import InstalledAppFlow, Flow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -93,8 +93,22 @@ def authenticate():
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(GOOGLE_CREDENTIALS_FILE, SCOPES)
-            creds = flow.run_local_server(port=0)
+            try:
+                # Try to open a browser to authenticate
+                flow = InstalledAppFlow.from_client_secrets_file(GOOGLE_CREDENTIALS_FILE, SCOPES)
+                creds = flow.run_local_server(port=0)
+            except Exception as e:
+                print(f"Local server authentication failed or no browser available: {e}")
+                flow = Flow.from_client_secrets_file(GOOGLE_CREDENTIALS_FILE, SCOPES)
+                flow.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'
+
+                auth_url, _ = flow.authorization_url(prompt='consent')
+                print(f'Please visit this URL to authorize this application: {auth_url}')
+
+                code = input('Enter the authorization code: ')
+                flow.fetch_token(code=code)
+                creds = flow.credentials
+        
         with open('token.pickle', 'wb') as token:
             pickle.dump(creds, token)
     return creds
