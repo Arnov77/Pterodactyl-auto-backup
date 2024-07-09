@@ -2,7 +2,7 @@
 
 This script automates the process of creating backups on a Pterodactyl server, downloading them, and uploading them to Google Drive. It also supports Discord notifications to track the status of backup operations.
 
-## Key Features
+## Features
 
 - **Backup Creation**: Automatically creates backups on a Pterodactyl server using its API.
 - **Backup Download**: Downloads the created backup from the server once the creation process is completed.
