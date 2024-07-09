@@ -1,4 +1,4 @@
-# Pterodactyl auto backup to Google Drive
+# Pterodactyl auto backup
 
 This script automates the process of creating backups on a Pterodactyl server, downloading them, and uploading them to Google Drive. It also supports Discord notifications to track the status of backup operations.
 
